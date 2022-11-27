@@ -39,8 +39,8 @@ if not img.isOpened:
 else:
     print("open")
     
-SCREEN_WIDTH = 160
-SCREEN_HIGHT = 120
+SCREEN_WIDTH = 80 ## reduced by half for more-efficient AI processing 
+SCREEN_HIGHT = 60 ## also reduced by half 
 img.set(3,SCREEN_WIDTH)
 img.set(4,SCREEN_HIGHT)
 CENTER_X = SCREEN_WIDTH/2
@@ -98,13 +98,13 @@ def destroy():
 def test():
     fw.turn(90)
 
-def find_blob() :
+def find_blob(bgr_image) :
     radius = 0
     # Load input image
     #_, bgr_image = img.read()
-    ret, bgr_image = img.read()
-    if ret == False:
-        print("Failed to read image")
+    ##ret, bgr_image = img.read()
+    ##if ret == False:
+    ##    print("Failed to read image")
 
     orig_image = bgr_image
 
