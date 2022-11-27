@@ -4,7 +4,7 @@ import numpy as np
 import random 
 import pickle 
 from time import time, sleep 
-from car import BALL_SIZE_MIN, BALL_SIZE_MAX, find_blob 
+from car_cv2_vision import BALL_SIZE_MIN, BALL_SIZE_MAX, find_blob 
 
 ## CONSTANTS 
 N_ACTIONS = 8 
@@ -189,9 +189,16 @@ class PiCarEnv():
             filename = self.memory_write_location + '/picar-memory-' + str(int(time())) + '.pkl' 
             with open(filename, 'wb') as f: 
                 pickle.dump(data, f) 
+                pass 
             ## forget 
             self.memory = [] 
         pass 
+    @staticmethod 
+    def load_memory(filepath): 
+        with open(filepath, 'rb') as f: 
+            data = pickle.load(f) 
+            pass 
+        return data 
     __action_dict = { 
             0: drive_left, 
             1: drive_right, 
