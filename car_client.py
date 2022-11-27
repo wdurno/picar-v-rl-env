@@ -2,6 +2,7 @@ import requests
 import json 
 import numpy as np 
 import random 
+import pickle 
 from time import time, sleep 
 from car import BALL_SIZE_MIN, BALL_SIZE_MAX, find_blob 
 
@@ -56,14 +57,17 @@ def __handle_get(url):
 ## RL ENV 
 
 class PiCarEnv(): 
-    def __init__(self, host, cool_down=.2): 
+    def __init__(self, host, cool_down=.2, memory_length=0, memory_write_location='/tmp'): 
         self.host = host 
         self.cool_down = cool_down 
+        self.memory_length = memory_length ## <= 0 disables memorization 
+        self.memory_write_location = memory_write_location ## where to write memory when full 
         look_forward(self.host) 
         self.last_action = 7 
         self.camera = 0 
         self.get_image() 
         self.last_action_time = time() 
+        self.memory = [] 
         pass 
     def reset(self): 
         look_forward(self.host) 
@@ -81,6 +85,7 @@ class PiCarEnv():
         self.last_action = action 
         self.get_image() 
         self.last_action_time = time() 
+        self.memorize() 
         return self.last_image, self.camera 
     def auto_action(self): 
         t = time()
@@ -152,7 +157,41 @@ class PiCarEnv():
             ## slight punishment for being too close 
             return min(1. + (BALL_SIZE_MAX - ball_radius)/20., -.1) 
             pass 
-        return 0.  
+        return 0. 
+    def memorize(self): 
+        if self.memory_length <= 0: 
+            ## memorization disabled 
+            return None 
+        memory_tuple = ( 
+                self.last_image, 
+                self.last_action,
+                self.last_x, 
+                self.last_r 
+                ) 
+        self.memory.append(memory_tuple) 
+        if len(self.memory) > self.memory_length: 
+            ## memory full, write to disk 
+            ## first, convert to lists 
+            image_list = [] 
+            action_list = [] 
+            x_list = [] 
+            r_list = [] 
+            for memory_tuple in self.memory: 
+                image_list.append(memory_tuple[0]) 
+                action_list.append(memory_tuple[1]) 
+                x_list.append(memory_tuple[2]) 
+                r_list.append(memory_tuple[3]) 
+                pass 
+            ## stack images for space efficiency 
+            image_list = np.stack(image_list) 
+            ## pickle 
+            data = (image_list, action_list, x_list, r_list) 
+            filename = self.memory_write_location + '/picar-memory-' + str(int(time())) + '.pkl' 
+            with open(filename, 'wb') as f: 
+                pickle.dump(data, f) 
+            ## forget 
+            self.memory = [] 
+        pass 
     __action_dict = { 
             0: drive_left, 
             1: drive_right, 
