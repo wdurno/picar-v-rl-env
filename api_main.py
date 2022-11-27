@@ -30,8 +30,15 @@ def get_img():
     successful_read, i = img.read() 
     if not successful_read: 
         raise Exception('`img.read()` failed!') 
-    i = np.array(Image.fromarray(i).resize((60, 80))) 
-    return json.dumps(i.tolist()), 200 
+    ## scan for red blobs 
+    x, y, r = 0, 0, 0 
+    for _ in range(10): 
+        image = np.array(Image.fromarray(i).resize((60, 80))) 
+        (tmp_x, tmp_y), tmp_r = find_blob(image) 
+        if tmp_r > r: 
+            x, y, r = tmp_x, tmp_y, tmp_r 
+    ## package and return 
+    return json.dumps((image.tolist(), x, y, r)), 200 
 
 @app.route('/drive-left') 
 def drive_left(): 

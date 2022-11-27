@@ -12,7 +12,8 @@ N_ACTIONS = 8
 
 def img(host): 
     t = __handle_get(f'http://{host}/img') 
-    return np.array(json.loads(t)).astype(np.uint8)  
+    image, x, y, r = json.loads(t) 
+    return np.array(image).astype(np.uint8), x, y, r  
 
 def drive_left(host): 
     __handle_get(f'http://{host}/drive-left') 
@@ -55,11 +56,13 @@ def __handle_get(url):
 ## RL ENV 
 
 class PiCarEnv(): 
-    def __init__(self, host): 
+    def __init__(self, host, cool_down=.2): 
         self.host = host 
+        self.cool_down = cool_down 
         look_forward(self.host) 
+        self.last_action = 7 
         self.camera = 0 
-        self.last_image = img(self.host) 
+        self.get_image() 
         self.last_action_time = time() 
         pass 
     def reset(self): 
@@ -75,24 +78,30 @@ class PiCarEnv():
         if action in PiCarEnv.__look_dict: 
             self.camera = PiCarEnv.__look_dict[action] 
             pass 
-        image = img(self.host) 
-        self.last_image = image 
+        self.last_action = action 
+        self.get_image() 
         self.last_action_time = time() 
-        return image, self.camera 
+        return self.last_image, self.camera 
     def auto_action(self): 
         t = time()
-        if t - self.last_action_time < .1: 
+        if t - self.last_action_time < self.cool_down: 
             ## avoid overheats 
-            sleep(.1 - t + self.last_action_time) 
+            sleep(self.cool_down - (t - self.last_action_time)) 
             pass 
-        (x, y), r = find_blob(self.last_image) 
-        action = self.suggest_action(x, r) 
+        action = self.suggest_action() 
         self.step(action) 
         pass 
-    def suggest_action(self, ball_x_location, ball_radius): 
-        left = 20 
-        center = 30 
-        right = 40 
+    def get_image(self): 
+        self.last_image, self.last_x, _, self.last_r = img(self.host) 
+        pass 
+    def suggest_action(self): 
+        ## vision constants 
+        left = 30 
+        center = 40 
+        right = 50 
+        ## name inputs 
+        ball_x_location = self.last_x 
+        ball_radius = self.last_r 
         if ball_radius == 0: 
             ## no ball seen 
             ## scan for it 
@@ -134,8 +143,8 @@ class PiCarEnv():
                 else: 
                     return 3 ## drive_backward 
         pass 
-    @staticmethod 
-    def get_reward(ball_radius): 
+    def get_reward(self): 
+        ball_radius = self.last_r 
         ## reward being close to the ball 
         if ball_radius >= BALL_SIZE_MIN and ball_radius <= BALL_SIZE_MAX: 
             return(ball_radius - BALL_SIZE_MIN ) / (BALL_SIZE_MAX - BALL_SIZE_MIN) 
