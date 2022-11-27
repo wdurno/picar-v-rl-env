@@ -4,7 +4,7 @@ import numpy as np
 import random 
 import pickle 
 from time import time, sleep 
-from car_cv2_vision import BALL_SIZE_MIN, BALL_SIZE_MAX, find_blob 
+from constants import BALL_SIZE_MIN, BALL_SIZE_MAX  
 
 ## CONSTANTS 
 N_ACTIONS = 8 
