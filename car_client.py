@@ -101,9 +101,9 @@ class PiCarEnv():
         pass 
     def suggest_action(self): 
         ## vision constants 
-        left = 30 
-        center = 40 
-        right = 50 
+        left = 20 
+        center = 30 
+        right = 40 
         ## name inputs 
         ball_x_location = self.last_x 
         ball_radius = self.last_r 
@@ -216,3 +216,4 @@ class PiCarEnv():
             7: 0  ## foward 
             } 
     pass 
+
