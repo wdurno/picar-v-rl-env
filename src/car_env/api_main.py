@@ -3,7 +3,7 @@ from PIL import Image
 import numpy as np 
 import json 
 from time import time, sleep 
-from car import img, find_blob, fw, bw, pan_servo, tilt_servo  
+from .car import img, find_blob, fw, bw, pan_servo, tilt_servo  
 ## primary car interface:
 ## - img ## img.read(), img.release()
 ## - find_blob() ## returns (x, y), radius
