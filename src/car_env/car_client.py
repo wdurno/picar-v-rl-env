@@ -3,6 +3,7 @@ import json
 import numpy as np 
 import random 
 import pickle 
+import os 
 from time import time, sleep 
 from .constants import BALL_SIZE_MIN, BALL_SIZE_MAX, N_ACTIONS   
 
