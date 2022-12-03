@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 import picar
 import os
-from constants import SCREEN_WIDTH, SCREEN_HEIGHT, CENTER_X, CENTER_Y, BALL_SIZE_MIN, BALL_SIZE_MAX 
+from .constants import SCREEN_WIDTH, SCREEN_HEIGHT, CENTER_X, CENTER_Y, BALL_SIZE_MIN, BALL_SIZE_MAX 
 
 picar.setup()
 # Show image captured by camera, True to turn on, you will need #DISPLAY and it also slows the speed of tracking
