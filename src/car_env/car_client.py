@@ -4,10 +4,7 @@ import numpy as np
 import random 
 import pickle 
 from time import time, sleep 
-from .constants import BALL_SIZE_MIN, BALL_SIZE_MAX  
-
-## CONSTANTS 
-N_ACTIONS = 8 
+from .constants import BALL_SIZE_MIN, BALL_SIZE_MAX, N_ACTIONS   
 
 ## CLIENT 
 
@@ -86,7 +83,8 @@ class PiCarEnv():
         self.get_image() 
         self.last_action_time = time() 
         self.memorize() 
-        return self.last_image, self.camera 
+        reward = PiCarEnv.get_reward(self.last_r) 
+        return self.last_image, self.camera, reward  
     def auto_action(self): 
         t = time()
         if t - self.last_action_time < self.cool_down: 
@@ -148,8 +146,9 @@ class PiCarEnv():
                 else: 
                     return 3 ## drive_backward 
         pass 
-    def get_reward(self): 
-        ball_radius = self.last_r 
+    @staticmethod 
+    def get_reward(r): 
+        ball_radius = r 
         ## reward being close to the ball 
         if ball_radius >= BALL_SIZE_MIN and ball_radius <= BALL_SIZE_MAX: 
             return(ball_radius - BALL_SIZE_MIN ) / (BALL_SIZE_MAX - BALL_SIZE_MIN) 
@@ -166,7 +165,8 @@ class PiCarEnv():
                 self.last_image, 
                 self.last_action,
                 self.last_x, 
-                self.last_r 
+                self.last_r, 
+                self.camera 
                 ) 
         self.memory.append(memory_tuple) 
         if len(self.memory) > self.memory_length: 
@@ -176,17 +176,19 @@ class PiCarEnv():
             action_list = [] 
             x_list = [] 
             r_list = [] 
+            camera_list = [] 
             for memory_tuple in self.memory: 
                 image_list.append(memory_tuple[0]) 
                 action_list.append(memory_tuple[1]) 
                 x_list.append(memory_tuple[2]) 
                 r_list.append(memory_tuple[3]) 
+                camera_list.append(memory_tuple[4]) 
                 pass 
             ## stack images for space efficiency 
             image_list = np.stack(image_list) 
             ## pickle 
             data = (image_list, action_list, x_list, r_list) 
-            filename = self.memory_write_location + '/picar-memory-' + str(int(time())) + '.pkl' 
+            filename = os.path.join(self.memory_write_location, 'picar-memory-'+str(int(time()))+'.pkl') 
             with open(filename, 'wb') as f: 
                 pickle.dump(data, f) 
                 pass 
@@ -198,7 +200,20 @@ class PiCarEnv():
         with open(filepath, 'rb') as f: 
             data = pickle.load(f) 
             pass 
-        return data 
+        unstacked_arrays = PiCarEnv.__unstack(data[0]) 
+        unstacked_data = (
+                unstacked_arrays, ## images 
+                data[1], ## actions 
+                data[2], ## ball x locations 
+                data[3], ## ball radii 
+                data[4]  ## camera positions 
+                ) 
+        return unstacked_data 
+
+    @staticmethod 
+    def __unstack(a, axis = 0):
+        return [np.squeeze(e, axis) for e in np.split(a, a.shape[axis], axis = axis)]
+
     __action_dict = { 
             0: drive_left, 
             1: drive_right, 
