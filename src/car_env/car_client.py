@@ -1,4 +1,5 @@
 import requests 
+from requests.exception import Timeout
 import json 
 import numpy as np 
 import random 
@@ -47,7 +48,20 @@ def look_forward(host):
     pass 
 
 def __handle_get(url): 
-    r = requests.get(url) 
+    retries = 5 ## important because raspberrypi servers respond intermittently under load 
+    continue_attempting = True 
+    while continue_attempting:
+        try: 
+            r = requests.get(url, timeout=10) 
+            continue_attempting = False 
+        except Timeout as e: 
+            print(f'WARNING! timeout occurred! Error message:\n{e}') 
+            retries -= 1 
+            if retries <= 0: 
+                raise Exception('ERROR: Out of timeouts!') 
+                pass 
+            pass 
+        retries = 0 
     if r.status_code != 200: 
         raise Exception(f'ERROR! Status code: {r.status_code}') 
     return r.text 
@@ -70,7 +84,8 @@ class PiCarEnv():
     def reset(self): 
         look_forward(self.host) 
         self.camera = 0 
-        return img(self.host), self.camera  
+        self.get_image() 
+        return self.last_image, self.camera  
     def action_space_sample(self): 
         return random.randint(0, N_ACTIONS-1) ## sampling range is inclusive 
     def step(self, action): 
