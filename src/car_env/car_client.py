@@ -1,5 +1,5 @@
 import requests 
-from requests.exception import Timeout
+from requests.exceptions import Timeout
 import json 
 import numpy as np 
 import random 
@@ -57,6 +57,7 @@ def __handle_get(url):
         except Timeout as e: 
             print(f'WARNING! timeout occurred! Error message:\n{e}') 
             retries -= 1 
+            sleep(.1) 
             if retries <= 0: 
                 raise Exception('ERROR: Out of timeouts!') 
                 pass 
@@ -204,9 +205,11 @@ class PiCarEnv():
             image_list = np.stack(image_list) 
             ## pickle 
             data = (image_list, action_list, x_list, r_list) 
-            filename = os.path.join(self.memory_write_location, 'picar-memory-'+str(int(time()))+'.pkl') 
-            with open(filename, 'wb') as f: 
-                pickle.dump(data, f) 
+            if self.memory_write_location is not None: 
+                filename = os.path.join(self.memory_write_location, 'picar-memory-'+str(int(time()))+'.pkl') 
+                with open(filename, 'wb') as f: 
+                    pickle.dump(data, f) 
+                    pass 
                 pass 
             ## forget 
             self.memory = [] 
