@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 import picar
 import os
+import imutils 
 from .constants import SCREEN_WIDTH, SCREEN_HEIGHT, CENTER_X, CENTER_Y, BALL_SIZE_MIN, BALL_SIZE_MAX 
 
 picar.setup()
@@ -157,3 +158,20 @@ def find_blob(bgr_image) :
     else:
         return (0, 0), 0 
 
+def find_blob_contours(rgb_image):
+    red_hsv_lower = (90, 90, 90)
+    red_hsv_upper = (200, 200, 255)
+    image = cv2.GaussianBlur(rgb_image, (9, 9), 0)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
+    image = cv2.inRange(image, red_hsv_lower, red_hsv_upper)
+    image = cv2.erode(image, None, iterations=2)
+    image = cv2.dilate(image, None, iterations=2)
+    contours = cv2.findContours(image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = imutils.grab_contours(contours)
+    if len(contours) > 0:
+        c = max(contours, key=cv2.contourArea)
+        ((x, y), r) = cv2.minEnclosingCircle(c)
+        if r > 3:
+            return (x, y), r
+        pass
+    return (0, 0), 0

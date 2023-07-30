@@ -34,7 +34,14 @@ def get_img():
     x, y, r = 0, 0, 0 
     for _ in range(10): 
         image = np.array(Image.fromarray(i).resize((60, 80))) 
-        (tmp_x, tmp_y), tmp_r = find_blob(image) 
+        if True: 
+            ## Contours
+            (tmp_x, tmp_y), tmp_r = find_blob_contours(image) 
+        else: 
+            ## Hough Circles 
+            ## Too error-prone. Not using 
+            (tmp_x, tmp_y), tmp_r = find_blob(image) 
+            pass 
         if tmp_r > r: 
             x, y, r = tmp_x, tmp_y, tmp_r 
     ## package and return 
