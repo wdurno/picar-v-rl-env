@@ -33,7 +33,9 @@ def get_img():
     ## scan for red blobs 
     x, y, r = 0, 0, 0 
     for _ in range(10): 
-        image = np.array(Image.fromarray(i).resize((60, 80))) 
+        x_resize = int(request.args.get('x_resize', default=60)) 
+        y_resize = int(request.args.get('y_resize', default=80))
+        image = np.array(Image.fromarray(i).resize((x_resize, y_resize))) 
         if True: 
             ## Contours
             (tmp_x, tmp_y), tmp_r = find_blob_contours(image) 

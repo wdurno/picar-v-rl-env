@@ -10,8 +10,12 @@ from .constants import BALL_SIZE_MIN, BALL_SIZE_MAX, N_ACTIONS
 
 ## CLIENT 
 
-def img(host): 
-    t = __handle_get(f'http://{host}/img') 
+def img(host, x_resize=None, y_resize=None): 
+    params = None 
+    if x_resize is not None and y_resize is not None: 
+        params = {'x_resize': x_resize, 'y_resize': y_resize} 
+        pass 
+    t = __handle_get(f'http://{host}/img', params=params) 
     image, x, y, r = json.loads(t) 
     return np.array(image).astype(np.uint8), x, y, r  
 
@@ -47,12 +51,12 @@ def look_forward(host):
     __handle_get(f'http://{host}/look-forward') 
     pass 
 
-def __handle_get(url): 
+def __handle_get(url, params=None): 
     retries = 5 ## important because raspberrypi servers respond intermittently under load 
     continue_attempting = True 
     while continue_attempting:
         try: 
-            r = requests.get(url, timeout=10) 
+            r = requests.get(url, params=params, timeout=10) 
             continue_attempting = False 
         except Timeout as e: 
             print(f'WARNING! timeout occurred! Error message:\n{e}') 
@@ -70,7 +74,7 @@ def __handle_get(url):
 ## RL ENV 
 
 class PiCarEnv(): 
-    def __init__(self, host, cool_down=.2, memory_length=0, memory_write_location='/tmp'): 
+    def __init__(self, host, cool_down=.2, memory_length=0, memory_write_location='/tmp', x_resize=None, y_resize=None): 
         self.host = host 
         self.cool_down = cool_down 
         self.memory_length = memory_length ## <= 0 disables memorization 
@@ -81,6 +85,8 @@ class PiCarEnv():
         self.get_image() 
         self.last_action_time = time() 
         self.memory = [] 
+        self.x_resize = x_resize 
+        self.y_resize = y_resize 
         pass 
     def reset(self): 
         look_forward(self.host) 
@@ -110,9 +116,9 @@ class PiCarEnv():
             pass 
         action = self.suggest_action() 
         self.step(action) 
-        pass 
+        return self.last_image, self.last_x, self.last_y, self.last_r 
     def get_image(self): 
-        self.last_image, self.last_x, _, self.last_r = img(self.host) 
+        self.last_image, self.last_x, self.last_y, self.last_r = img(self.host, x_resize=self.x_resize, y_resize=self.y_resize) 
         pass 
     def suggest_action(self): 
         ## vision constants 
