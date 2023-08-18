@@ -1,4 +1,4 @@
-from flask import Flask 
+from flask import Flask, request 
 from PIL import Image 
 import numpy as np 
 import json 
