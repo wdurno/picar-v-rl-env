@@ -27,6 +27,10 @@ def health():
 
 @app.route('/img') 
 def get_img(): 
+    for _ in range(10): 
+        ## claer cache 
+        _ = img.read() 
+        pass 
     successful_read, i = img.read() 
     if not successful_read: 
         raise Exception('`img.read()` failed!') 

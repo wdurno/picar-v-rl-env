@@ -82,11 +82,11 @@ class PiCarEnv():
         look_forward(self.host) 
         self.last_action = 7 
         self.camera = 0 
+        self.x_resize = x_resize 
+        self.y_resize = y_resize 
         self.get_image() 
         self.last_action_time = time() 
         self.memory = [] 
-        self.x_resize = x_resize 
-        self.y_resize = y_resize 
         pass 
     def reset(self): 
         look_forward(self.host) 
