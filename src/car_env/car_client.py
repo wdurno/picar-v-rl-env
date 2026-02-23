@@ -51,6 +51,16 @@ def look_forward(host):
     __handle_get(f'http://{host}/look-forward') 
     pass 
 
+def apply_vector(host, pan=0.0, tilt=0.0, turn=0.0, drive=0.0):
+    params = {
+            'pan': pan,
+            'tilt': tilt,
+            'turn': turn,
+            'drive': drive,
+            }
+    t = __handle_get(f'http://{host}/apply_vector', params=params)
+    return json.loads(t)
+
 def __handle_get(url, params=None): 
     retries = 5 ## important because raspberrypi servers respond intermittently under load 
     continue_attempting = True 
@@ -256,4 +266,3 @@ class PiCarEnv():
             7: 0  ## foward 
             } 
     pass 
-

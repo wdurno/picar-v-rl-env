@@ -93,16 +93,59 @@ def look_forwad():
     __look(PAN_CENTER, TILT_CENTER)
     return 'look-forward', 200 
 
+@app.route('/apply_vector', methods=['GET', 'POST']) 
+def apply_vector():
+    try:
+        payload = request.get_json(silent=True) or {}
+        pan = __read_float_param('pan', payload, default=0.0)
+        tilt = __read_float_param('tilt', payload, default=0.0)
+        turn = __read_float_param('turn', payload, default=0.0)
+        drive = __read_float_param('drive', payload, default=0.0)
+
+        __validate_range('pan', pan, -1.0, 1.0)
+        __validate_range('tilt', tilt, 0.0, 1.0)
+        __validate_range('turn', turn, -1.0, 1.0)
+        __validate_range('drive', drive, -1.0, 1.0)
+
+        pan_angle = __map_linear(pan, -1.0, 1.0, TURN_ANGLE_CENTER - TURN_ANGLE_DELTA, TURN_ANGLE_CENTER + TURN_ANGLE_DELTA)
+        tilt_angle = __map_linear(tilt, 0.0, 1.0, TILT_CENTER, TILT_CENTER + PAN_TILT_DELTA)
+        turn_angle = __map_linear(turn, -1.0, 1.0, TURN_ANGLE_CENTER - TURN_ANGLE_DELTA, TURN_ANGLE_CENTER + TURN_ANGLE_DELTA)
+
+        __look(pan_angle=pan_angle, tilt_angle=tilt_angle)
+
+        turn_is_non_zero = abs(turn) > 1e-6
+        drive_is_non_zero = abs(drive) > 1e-6
+
+        if turn_is_non_zero:
+            fw.turn(turn_angle)
+            if not drive_is_non_zero:
+                drive_time = DRIVE_TIME
+                __drive(drive_time=drive_time, drive_forward=True)
+            else:
+                drive_time = DRIVE_TIME * abs(drive)
+                __drive(drive_time=drive_time, drive_forward=(drive > 0))
+        elif drive_is_non_zero:
+            fw.turn(TURN_ANGLE_CENTER)
+            drive_time = DRIVE_TIME * abs(drive)
+            __drive(drive_time=drive_time, drive_forward=(drive > 0))
+        else:
+            drive_time = 0.0
+
+        return json.dumps({
+            'status': 'ok',
+            'pan_angle': pan_angle,
+            'tilt_angle': tilt_angle,
+            'turn_angle': turn_angle,
+            'drive_time': drive_time,
+        }), 200
+    except ValueError as e:
+        return json.dumps({'status': 'error', 'message': str(e)}), 400
+    finally:
+        fw.turn(TURN_ANGLE_CENTER)
+
 def __turn_and_drive(turn_angle=120, drive_time=DRIVE_TIME, motor_speed=MOTOR_SPEED, drive_forward=True): 
     fw.turn(turn_angle) 
-    bw.speed = motor_speed 
-    if drive_forward: 
-        bw.backward() ## my motors are up-side-down :( 
-    else: 
-        bw.forward() 
-        pass
-    sleep(drive_time) ## waint until drive time elapses 
-    bw.stop() 
+    __drive(drive_time=drive_time, motor_speed=motor_speed, drive_forward=drive_forward)
     fw.turn(90) 
     pass 
 
@@ -111,7 +154,34 @@ def __look(pan_angle=80, tilt_angle=20):
     tilt_servo.write(tilt_angle) 
     pass 
 
+def __drive(drive_time=DRIVE_TIME, motor_speed=MOTOR_SPEED, drive_forward=True):
+    if drive_time <= 0:
+        return None
+    bw.speed = motor_speed 
+    if drive_forward: 
+        bw.backward() ## my motors are up-side-down :( 
+    else: 
+        bw.forward() 
+        pass
+    sleep(drive_time) ## waint until drive time elapses 
+    bw.stop()
+    return None
+
+def __read_float_param(name, payload, default=0.0):
+    value = request.args.get(name, default=payload.get(name, default))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'`{name}` must be a float')
+
+def __validate_range(name, value, low, high):
+    if value < low or value > high:
+        raise ValueError(f'`{name}` must be in [{low}, {high}]')
+    return None
+
+def __map_linear(value, in_min, in_max, out_min, out_max):
+    return int(round(out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min)))
+
 if __name__ == '__main__': 
     app.run(host='0.0.0.0', port=5000) 
     pass 
-
