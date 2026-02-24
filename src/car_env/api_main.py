@@ -1,9 +1,9 @@
-from flask import Flask, request 
-from PIL import Image 
-import numpy as np 
+from flask import Flask, request, Response
 import json 
+import threading
+import cv2
 from time import time, sleep 
-from .car import img, find_blob, find_blob_contours, fw, bw, pan_servo, tilt_servo  
+from .car import img, fw, bw, pan_servo, tilt_servo  
 ## primary car interface:
 ## - img ## img.read(), img.release()
 ## - find_blob() ## returns (x, y), radius
@@ -17,8 +17,16 @@ DRIVE_TIME = .5 ## seconds
 PAN_CENTER = 80 
 TILT_CENTER = 20 
 PAN_TILT_DELTA = 30 
+CAPTURE_LOOP_SLEEP_SECONDS = 0.002
+CAPTURE_RETRY_SLEEP_SECONDS = 0.01
+FRAME_WAIT_SLEEP_SECONDS = 0.002
+DEFAULT_JPEG_QUALITY = 80
 
 app = Flask(__name__) 
+_latest_frame = None
+_latest_frame_lock = threading.Lock()
+_capture_thread = None
+_capture_thread_lock = threading.Lock()
 
 @app.route('/') 
 @app.route('/health') 
@@ -27,31 +35,30 @@ def health():
 
 @app.route('/img') 
 def get_img(): 
-    for _ in range(10): 
-        ## claer cache 
-        _ = img.read() 
-        pass 
-    successful_read, i = img.read() 
-    if not successful_read: 
-        raise Exception('`img.read()` failed!') 
-    ## scan for red blobs 
-    x, y, r = 0, 0, 0 
-    for _ in range(10): 
-        x_resize = int(request.args.get('x_resize', default=60)) 
-        y_resize = int(request.args.get('y_resize', default=80))
-        image = np.array(Image.fromarray(i).resize((x_resize, y_resize))) 
-        if True: 
-            ## Contours
-            (tmp_x, tmp_y), tmp_r = find_blob_contours(image) 
-        else: 
-            ## Hough Circles 
-            ## Too error-prone. Not using 
-            (tmp_x, tmp_y), tmp_r = find_blob(image) 
-            pass 
-        if tmp_r > r: 
-            x, y, r = tmp_x, tmp_y, tmp_r 
-    ## package and return 
-    return json.dumps((image.tolist(), x, y, r)), 200 
+    __start_capture_thread_if_needed()
+    frame = __get_latest_frame(timeout_seconds=0.25)
+    if frame is None:
+        successful_read, frame = img.read()
+        if not successful_read:
+            raise Exception('`img.read()` failed!')
+
+    x_resize = __read_int_param('x_resize', default=60)
+    y_resize = __read_int_param('y_resize', default=80)
+    jpeg_quality = __read_int_param('jpeg_quality', default=DEFAULT_JPEG_QUALITY)
+    jpeg_quality = max(1, min(100, jpeg_quality))
+
+    if x_resize > 0 and y_resize > 0:
+        frame = cv2.resize(frame, (x_resize, y_resize), interpolation=cv2.INTER_AREA)
+
+    ok, jpeg_buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
+    if not ok:
+        raise Exception('`cv2.imencode(.jpg)` failed!')
+
+    return Response(
+        jpeg_buffer.tobytes(),
+        mimetype='image/jpeg',
+        headers={'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'}
+    )
 
 @app.route('/drive-left') 
 def drive_left(): 
@@ -181,6 +188,46 @@ def __validate_range(name, value, low, high):
 
 def __map_linear(value, in_min, in_max, out_min, out_max):
     return int(round(out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min)))
+
+def __capture_latest_frame_loop():
+    global _latest_frame
+    while True:
+        successful_read, frame = img.read()
+        if successful_read:
+            with _latest_frame_lock:
+                _latest_frame = frame
+            sleep(CAPTURE_LOOP_SLEEP_SECONDS)
+        else:
+            sleep(CAPTURE_RETRY_SLEEP_SECONDS)
+
+def __start_capture_thread_if_needed():
+    global _capture_thread
+    with _capture_thread_lock:
+        if _capture_thread is not None and _capture_thread.is_alive():
+            return None
+        _capture_thread = threading.Thread(
+            target=__capture_latest_frame_loop,
+            name='latest-frame-capture',
+            daemon=True,
+        )
+        _capture_thread.start()
+    return None
+
+def __get_latest_frame(timeout_seconds=0.25):
+    deadline = time() + timeout_seconds
+    while time() < deadline:
+        with _latest_frame_lock:
+            if _latest_frame is not None:
+                return _latest_frame.copy()
+        sleep(FRAME_WAIT_SLEEP_SECONDS)
+    return None
+
+def __read_int_param(name, default=0):
+    value = request.args.get(name, default=default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'`{name}` must be an integer')
 
 if __name__ == '__main__': 
     app.run(host='0.0.0.0', port=5000) 
