@@ -1,6 +1,6 @@
 [project]
 name = "car_env"
-version = "0.0.1"
+version = "2.0.0"
 description = "an openai gym-like interface to the PiCar-V"
 readme = "README.md"
 requires-python = ">=3.9"
