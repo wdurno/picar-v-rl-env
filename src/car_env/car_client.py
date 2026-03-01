@@ -2,6 +2,7 @@ import requests
 from requests.exceptions import Timeout
 import json 
 import numpy as np 
+import cv2
 import random 
 import pickle 
 import os 
@@ -15,9 +16,24 @@ def img(host, x_resize=None, y_resize=None):
     if x_resize is not None and y_resize is not None: 
         params = {'x_resize': x_resize, 'y_resize': y_resize} 
         pass 
-    t = __handle_get(f'http://{host}/img', params=params) 
-    image, x, y, r = json.loads(t) 
-    return np.array(image).astype(np.uint8), x, y, r  
+    r = __handle_get_response(f'http://{host}/img', params=params)
+    content_type = r.headers.get('Content-Type', '')
+
+    if 'application/json' in content_type:
+        image, x, y, r_blob = json.loads(r.text)
+        return np.array(image).astype(np.uint8), x, y, r_blob
+
+    image_bytes = np.frombuffer(r.content, dtype=np.uint8)
+    decoded_bgr = cv2.imdecode(image_bytes, cv2.IMREAD_COLOR)
+    if decoded_bgr is None:
+        raise Exception('ERROR! Failed to decode image bytes from `/img` response.')
+    decoded_rgb = cv2.cvtColor(decoded_bgr, cv2.COLOR_BGR2RGB)
+
+    # Blob metadata is no longer returned by `/img`; keep interface stable.
+    x = int(r.headers.get('X-Ball-X', 0))
+    y = int(r.headers.get('X-Ball-Y', 0))
+    r_blob = int(r.headers.get('X-Ball-R', 0))
+    return decoded_rgb.astype(np.uint8), x, y, r_blob  
 
 def drive_left(host): 
     __handle_get(f'http://{host}/drive-left') 
@@ -51,7 +67,21 @@ def look_forward(host):
     __handle_get(f'http://{host}/look-forward') 
     pass 
 
+def apply_vector(host, pan=0.0, tilt=0.0, turn=0.0, drive=0.0):
+    params = {
+            'pan': pan,
+            'tilt': tilt,
+            'turn': turn,
+            'drive': drive,
+            }
+    t = __handle_get(f'http://{host}/apply_vector', params=params)
+    return json.loads(t)
+
 def __handle_get(url, params=None): 
+    r = __handle_get_response(url=url, params=params)
+    return r.text 
+
+def __handle_get_response(url, params=None):
     retries = 5 ## important because raspberrypi servers respond intermittently under load 
     continue_attempting = True 
     while continue_attempting:
@@ -69,7 +99,7 @@ def __handle_get(url, params=None):
         retries = 0 
     if r.status_code != 200: 
         raise Exception(f'ERROR! Status code: {r.status_code}') 
-    return r.text 
+    return r
 
 ## RL ENV 
 
@@ -256,4 +286,3 @@ class PiCarEnv():
             7: 0  ## foward 
             } 
     pass 
-

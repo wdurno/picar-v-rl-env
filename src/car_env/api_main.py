@@ -1,9 +1,9 @@
-from flask import Flask, request 
-from PIL import Image 
-import numpy as np 
+from flask import Flask, request, Response
 import json 
+import threading
+import cv2
 from time import time, sleep 
-from .car import img, find_blob, find_blob_contours, fw, bw, pan_servo, tilt_servo  
+from .car import img, fw, bw, pan_servo, tilt_servo  
 ## primary car interface:
 ## - img ## img.read(), img.release()
 ## - find_blob() ## returns (x, y), radius
@@ -17,8 +17,16 @@ DRIVE_TIME = .5 ## seconds
 PAN_CENTER = 80 
 TILT_CENTER = 20 
 PAN_TILT_DELTA = 30 
+CAPTURE_LOOP_SLEEP_SECONDS = 0.002
+CAPTURE_RETRY_SLEEP_SECONDS = 0.01
+FRAME_WAIT_SLEEP_SECONDS = 0.002
+DEFAULT_JPEG_QUALITY = 80
 
 app = Flask(__name__) 
+_latest_frame = None
+_latest_frame_lock = threading.Lock()
+_capture_thread = None
+_capture_thread_lock = threading.Lock()
 
 @app.route('/') 
 @app.route('/health') 
@@ -27,31 +35,30 @@ def health():
 
 @app.route('/img') 
 def get_img(): 
-    for _ in range(10): 
-        ## claer cache 
-        _ = img.read() 
-        pass 
-    successful_read, i = img.read() 
-    if not successful_read: 
-        raise Exception('`img.read()` failed!') 
-    ## scan for red blobs 
-    x, y, r = 0, 0, 0 
-    for _ in range(10): 
-        x_resize = int(request.args.get('x_resize', default=60)) 
-        y_resize = int(request.args.get('y_resize', default=80))
-        image = np.array(Image.fromarray(i).resize((x_resize, y_resize))) 
-        if True: 
-            ## Contours
-            (tmp_x, tmp_y), tmp_r = find_blob_contours(image) 
-        else: 
-            ## Hough Circles 
-            ## Too error-prone. Not using 
-            (tmp_x, tmp_y), tmp_r = find_blob(image) 
-            pass 
-        if tmp_r > r: 
-            x, y, r = tmp_x, tmp_y, tmp_r 
-    ## package and return 
-    return json.dumps((image.tolist(), x, y, r)), 200 
+    __start_capture_thread_if_needed()
+    frame = __get_latest_frame(timeout_seconds=0.25)
+    if frame is None:
+        successful_read, frame = img.read()
+        if not successful_read:
+            raise Exception('`img.read()` failed!')
+
+    x_resize = __read_int_param('x_resize', default=60)
+    y_resize = __read_int_param('y_resize', default=80)
+    jpeg_quality = __read_int_param('jpeg_quality', default=DEFAULT_JPEG_QUALITY)
+    jpeg_quality = max(1, min(100, jpeg_quality))
+
+    if x_resize > 0 and y_resize > 0:
+        frame = cv2.resize(frame, (x_resize, y_resize), interpolation=cv2.INTER_AREA)
+
+    ok, jpeg_buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), jpeg_quality])
+    if not ok:
+        raise Exception('`cv2.imencode(.jpg)` failed!')
+
+    return Response(
+        jpeg_buffer.tobytes(),
+        mimetype='image/jpeg',
+        headers={'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'}
+    )
 
 @app.route('/drive-left') 
 def drive_left(): 
@@ -93,16 +100,59 @@ def look_forwad():
     __look(PAN_CENTER, TILT_CENTER)
     return 'look-forward', 200 
 
+@app.route('/apply_vector', methods=['GET', 'POST']) 
+def apply_vector():
+    try:
+        payload = request.get_json(silent=True) or {}
+        pan = __read_float_param('pan', payload, default=0.0)
+        tilt = __read_float_param('tilt', payload, default=0.0)
+        turn = __read_float_param('turn', payload, default=0.0)
+        drive = __read_float_param('drive', payload, default=0.0)
+
+        __validate_range('pan', pan, -1.0, 1.0)
+        __validate_range('tilt', tilt, 0.0, 1.0)
+        __validate_range('turn', turn, -1.0, 1.0)
+        __validate_range('drive', drive, -1.0, 1.0)
+
+        pan_angle = __map_linear(pan, -1.0, 1.0, TURN_ANGLE_CENTER - TURN_ANGLE_DELTA, TURN_ANGLE_CENTER + TURN_ANGLE_DELTA)
+        tilt_angle = __map_linear(tilt, 0.0, 1.0, TILT_CENTER, TILT_CENTER + PAN_TILT_DELTA)
+        turn_angle = __map_linear(turn, -1.0, 1.0, TURN_ANGLE_CENTER - TURN_ANGLE_DELTA, TURN_ANGLE_CENTER + TURN_ANGLE_DELTA)
+
+        __look(pan_angle=pan_angle, tilt_angle=tilt_angle)
+
+        turn_is_non_zero = abs(turn) > 1e-6
+        drive_is_non_zero = abs(drive) > 1e-6
+
+        if turn_is_non_zero:
+            fw.turn(turn_angle)
+            if not drive_is_non_zero:
+                drive_time = DRIVE_TIME
+                __drive(drive_time=drive_time, drive_forward=True)
+            else:
+                drive_time = DRIVE_TIME * abs(drive)
+                __drive(drive_time=drive_time, drive_forward=(drive > 0))
+        elif drive_is_non_zero:
+            fw.turn(TURN_ANGLE_CENTER)
+            drive_time = DRIVE_TIME * abs(drive)
+            __drive(drive_time=drive_time, drive_forward=(drive > 0))
+        else:
+            drive_time = 0.0
+
+        return json.dumps({
+            'status': 'ok',
+            'pan_angle': pan_angle,
+            'tilt_angle': tilt_angle,
+            'turn_angle': turn_angle,
+            'drive_time': drive_time,
+        }), 200
+    except ValueError as e:
+        return json.dumps({'status': 'error', 'message': str(e)}), 400
+    finally:
+        fw.turn(TURN_ANGLE_CENTER)
+
 def __turn_and_drive(turn_angle=120, drive_time=DRIVE_TIME, motor_speed=MOTOR_SPEED, drive_forward=True): 
     fw.turn(turn_angle) 
-    bw.speed = motor_speed 
-    if drive_forward: 
-        bw.backward() ## my motors are up-side-down :( 
-    else: 
-        bw.forward() 
-        pass
-    sleep(drive_time) ## waint until drive time elapses 
-    bw.stop() 
+    __drive(drive_time=drive_time, motor_speed=motor_speed, drive_forward=drive_forward)
     fw.turn(90) 
     pass 
 
@@ -111,7 +161,74 @@ def __look(pan_angle=80, tilt_angle=20):
     tilt_servo.write(tilt_angle) 
     pass 
 
+def __drive(drive_time=DRIVE_TIME, motor_speed=MOTOR_SPEED, drive_forward=True):
+    if drive_time <= 0:
+        return None
+    bw.speed = motor_speed 
+    if drive_forward: 
+        bw.backward() ## my motors are up-side-down :( 
+    else: 
+        bw.forward() 
+        pass
+    sleep(drive_time) ## waint until drive time elapses 
+    bw.stop()
+    return None
+
+def __read_float_param(name, payload, default=0.0):
+    value = request.args.get(name, default=payload.get(name, default))
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'`{name}` must be a float')
+
+def __validate_range(name, value, low, high):
+    if value < low or value > high:
+        raise ValueError(f'`{name}` must be in [{low}, {high}]')
+    return None
+
+def __map_linear(value, in_min, in_max, out_min, out_max):
+    return int(round(out_min + (value - in_min) * (out_max - out_min) / (in_max - in_min)))
+
+def __capture_latest_frame_loop():
+    global _latest_frame
+    while True:
+        successful_read, frame = img.read()
+        if successful_read:
+            with _latest_frame_lock:
+                _latest_frame = frame
+            sleep(CAPTURE_LOOP_SLEEP_SECONDS)
+        else:
+            sleep(CAPTURE_RETRY_SLEEP_SECONDS)
+
+def __start_capture_thread_if_needed():
+    global _capture_thread
+    with _capture_thread_lock:
+        if _capture_thread is not None and _capture_thread.is_alive():
+            return None
+        _capture_thread = threading.Thread(
+            target=__capture_latest_frame_loop,
+            name='latest-frame-capture',
+            daemon=True,
+        )
+        _capture_thread.start()
+    return None
+
+def __get_latest_frame(timeout_seconds=0.25):
+    deadline = time() + timeout_seconds
+    while time() < deadline:
+        with _latest_frame_lock:
+            if _latest_frame is not None:
+                return _latest_frame.copy()
+        sleep(FRAME_WAIT_SLEEP_SECONDS)
+    return None
+
+def __read_int_param(name, default=0):
+    value = request.args.get(name, default=default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f'`{name}` must be an integer')
+
 if __name__ == '__main__': 
     app.run(host='0.0.0.0', port=5000) 
     pass 
-
